@@ -1,0 +1,9 @@
+.env
+credentials.json
+*.pyc
+__pycache__/
+.venv/
+data/chroma/
+*.egg-info/
+.pytest_cache/
+.DS_Store
