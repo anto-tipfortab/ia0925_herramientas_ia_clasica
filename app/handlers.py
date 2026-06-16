@@ -11,7 +11,7 @@ log = logging.getLogger("funstay.handlers")
 
 # ---------- response builders ----------
 
-def text_response(text: str, output_contexts: list = None) -> dict:
+def text_response(text: str, output_contexts: list | None = None) -> dict:
     """Standard Dialogflow ES response with optional output contexts."""
     resp = {
         "fulfillmentText": text,
