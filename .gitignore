@@ -1,9 +1,29 @@
+# Secrets & credentials
 .env
+.env.*
+!.env.example
 credentials.json
+
+# Python
 *.pyc
 __pycache__/
 .venv/
-data/chroma/
 *.egg-info/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Data / generated stores
+data/chroma/
+
+# OS / editor
 .DS_Store
+.idea/
+.vscode/
+
+# Build artifacts & demo media (use Git LFS or out-of-repo storage)
+*.zip
+*.mov
+*.mp4
+Informe_*.pdf
+FunStay_Concierge_Entrega_*/
