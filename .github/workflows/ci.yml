@@ -1,0 +1,46 @@
+name: CI
+
+# Runs the quality gate on every PR and on pushes to main (post-merge safety).
+# The gate is the same one the lead runs locally: ruff + mypy + pytest+coverage.
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install uv (provides uvx)
+        uses: astral-sh/setup-uv@v5
+
+      - name: Ruff (lint)
+        run: uvx ruff check app tests
+
+      - name: Mypy (type-check)
+        run: uvx mypy app --ignore-missing-imports
+
+      - name: Install runtime + dev dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Pytest (with coverage gate)
+        # Initial coverage floor ≈ current suite level; ratchet upward as endpoint
+        # and voice-pipeline tests are added.
+        run: pytest --cov=app --cov-report=term-missing --cov-fail-under=40
