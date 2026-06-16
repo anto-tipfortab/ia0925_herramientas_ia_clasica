@@ -4,7 +4,6 @@ In production these would be DB queries / PMS API calls / Seam.co API.
 """
 import random
 import string
-from datetime import datetime, timedelta
 
 
 # Mock reservation DB: keyed by booking code (matches @codigo_reserva regex FS\d{6})

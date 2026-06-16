@@ -21,9 +21,12 @@ import tempfile
 import logging
 
 import boto3
+from botocore.config import Config as BotoConfig
 from openai import OpenAI
 from google.cloud import dialogflow_v2 as dialogflow
 from google.api_core.client_options import ClientOptions
+
+from . import config
 
 log = logging.getLogger("funstay.voice")
 
@@ -47,14 +50,26 @@ _SHORT_CONFIRM = {"si", "sí", "no", "yes", "sì", "vale", "ok", "okay", "claro"
 def _oa():
     global _openai
     if _openai is None:
-        _openai = OpenAI()
+        _openai = OpenAI(
+            timeout=config.OPENAI_TIMEOUT,
+            max_retries=config.OPENAI_MAX_RETRIES,
+        )
     return _openai
 
 
 def _polly_client():
     global _polly
     if _polly is None:
-        _polly = boto3.client("polly", region_name=AWS_REGION)
+        # Bounded connect/read timeouts + botocore's standard retry mode (backoff).
+        _polly = boto3.client(
+            "polly",
+            region_name=AWS_REGION,
+            config=BotoConfig(
+                connect_timeout=config.POLLY_CONNECT_TIMEOUT,
+                read_timeout=config.POLLY_READ_TIMEOUT,
+                retries={"max_attempts": config.POLLY_MAX_ATTEMPTS, "mode": "standard"},
+            ),
+        )
     return _polly
 
 

@@ -3,6 +3,8 @@ Per-intent handlers. Each receives (parameters, contexts, language, session)
 and returns a Dialogflow-ES-compatible response dict.
 """
 import logging
+from typing import Optional
+
 from .data import lookup_reservation, generate_door_code, open_maintenance_ticket
 from .rag import answer_with_rag
 
@@ -11,7 +13,7 @@ log = logging.getLogger("funstay.handlers")
 
 # ---------- response builders ----------
 
-def text_response(text: str, output_contexts: list = None) -> dict:
+def text_response(text: str, output_contexts: Optional[list] = None) -> dict:
     """Standard Dialogflow ES response with optional output contexts."""
     resp = {
         "fulfillmentText": text,
