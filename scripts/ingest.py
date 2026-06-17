@@ -32,6 +32,8 @@ from pdf2image import convert_from_path
 import pytesseract
 
 from app.rag import _get_collection, embed_text, COLLECTION_NAME
+from app.cache import get_answer_cache
+from app import config
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("ingest")
@@ -92,6 +94,21 @@ def detect_topic(text: str, default_topic: str) -> str:
     return default_topic
 
 
+def invalidate_cache_for_topics(topics, tenant_id: str = config.TENANT_ID) -> int:
+    """After re-ingesting a topic's docs (a corpus bump), mark that topic's cached
+    answers 'stale' so scripts/generate_faq.py --stale regenerates them. Returns
+    the number of cache rows invalidated. Best-effort: a missing cache is fine."""
+    try:
+        cache = get_answer_cache()
+        n = cache.invalidate_topics(tenant_id, sorted(set(topics)))
+    except Exception as e:  # never let cache bookkeeping fail an ingest
+        log.warning(f"corpus invalidation skipped: {e}")
+        return 0
+    if n:
+        log.info(f"corpus bump: marked {n} cached answer(s) stale for topics {sorted(set(topics))}")
+    return n
+
+
 def main():
     if not os.environ.get("OPENAI_API_KEY"):
         log.error("OPENAI_API_KEY not set. Aborting.")
@@ -117,6 +134,7 @@ def main():
         sys.exit(1)
 
     total_chunks = 0
+    ingested_topics: set[str] = set()
     for pdf_path in pdf_files:
         default_topic = DOC_TOPIC_MAP.get(pdf_path.name, "general")
         pages = ocr_pdf_to_text_per_page(pdf_path)
@@ -125,6 +143,7 @@ def main():
             chunks = chunk_text(page_text)
             for chunk_idx, chunk in enumerate(chunks):
                 topic = detect_topic(chunk, default_topic)
+                ingested_topics.add(topic)
                 chunk_id = f"{pdf_path.stem}_p{page_num}_c{chunk_idx}"
 
                 try:
@@ -148,6 +167,10 @@ def main():
 
     log.info(f"\n✓ Ingested {total_chunks} chunks into ChromaDB collection '{COLLECTION_NAME}'.")
     log.info(f"  Persisted to: {collection._client.get_settings().persist_directory if hasattr(collection, '_client') else 'data/chroma'}")
+
+    # Corpus bump: invalidate cached answers for the topics we just re-ingested so
+    # they are regenerated (python -m scripts.generate_faq --stale).
+    invalidate_cache_for_topics(ingested_topics)
 
 
 if __name__ == "__main__":

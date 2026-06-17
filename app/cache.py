@@ -126,7 +126,7 @@ class AnswerCache:
         params: List[object] = [tenant_id, *SERVED_STATUSES]
         if topic:
             sql += " AND topic=?"
-            params.append(topic)
+            params.append(_topic_key(topic))
         with closing(self._conn()) as conn:
             return list(conn.execute(sql, params).fetchall())
 
@@ -219,6 +219,64 @@ class AnswerCache:
                 (tenant_id, _topic_key(topic), canonical_q, emb, answer_es, answer_en, refs,
                  config.CORPUS_VERSION, config.PROMPT_VERSION, status, _now()),
             )
+
+    # ---- review + lifecycle helpers (Lane 3) ----
+    def list_by_status(self, tenant_id: str, status: str) -> List[sqlite3.Row]:
+        with closing(self._conn()) as conn:
+            return list(conn.execute(
+                "SELECT * FROM answers WHERE tenant_id=? AND status=? ORDER BY topic, canonical_q",
+                (tenant_id, status),
+            ).fetchall())
+
+    def get_by_id(self, tenant_id: str, row_id: int) -> Optional[sqlite3.Row]:
+        with closing(self._conn()) as conn:
+            return conn.execute(
+                "SELECT * FROM answers WHERE tenant_id=? AND id=?", (tenant_id, row_id),
+            ).fetchone()
+
+    def set_status(self, row_id: int, status: str, tenant_id: str = config.TENANT_ID) -> None:
+        with closing(self._conn()) as conn, conn:
+            conn.execute("UPDATE answers SET status=?, updated_at=? WHERE id=? AND tenant_id=?",
+                         (status, _now(), row_id, tenant_id))
+
+    def update_answer(self, row_id: int, language: str, text: str,
+                      tenant_id: str = config.TENANT_ID) -> None:
+        """Edit one language's answer and clear its stale audio path — the audio
+        will be re-synthesized on the next approval because the text (and thus the
+        sha256(text|voice|lang) key) changed."""
+        col = answer_column(language)
+        audio_col = "audio_es_path" if language.startswith("es") else "audio_en_path"
+        with closing(self._conn()) as conn, conn:
+            conn.execute(
+                f"UPDATE answers SET {col}=?, {audio_col}=NULL, updated_at=? WHERE id=? AND tenant_id=?",
+                (text, _now(), row_id, tenant_id),
+            )
+
+    def set_audio_path(self, row_id: int, language: str, path: str,
+                       tenant_id: str = config.TENANT_ID) -> None:
+        audio_col = "audio_es_path" if language.startswith("es") else "audio_en_path"
+        with closing(self._conn()) as conn, conn:
+            conn.execute(f"UPDATE answers SET {audio_col}=?, updated_at=? WHERE id=? AND tenant_id=?",
+                         (path, _now(), row_id, tenant_id))
+
+    def invalidate_topics(self, tenant_id: str, topics: Sequence[str]) -> int:
+        """Mark served answers of the given topics 'stale' (corpus changed →
+        regenerate). Returns the number of rows affected. Draft rows are left
+        alone (not yet served)."""
+        if not topics:
+            return 0
+        served = ",".join("?" for _ in SERVED_STATUSES)
+        topic_ph = ",".join("?" for _ in topics)
+        with closing(self._conn()) as conn, conn:
+            cur = conn.execute(
+                f"UPDATE answers SET status='stale', updated_at=? "
+                f"WHERE tenant_id=? AND status IN ({served}) AND topic IN ({topic_ph})",
+                (_now(), tenant_id, *SERVED_STATUSES, *[_topic_key(t) for t in topics]),
+            )
+            return cur.rowcount
+
+    def stale_rows(self, tenant_id: str) -> List[sqlite3.Row]:
+        return self.list_by_status(tenant_id, "stale")
 
 
 class AudioCache:
