@@ -24,7 +24,6 @@ import os
 import sys
 import uuid
 import logging
-from pathlib import Path
 
 import azure.cognitiveservices.speech as speechsdk
 from google.cloud import dialogflow_v2 as dialogflow

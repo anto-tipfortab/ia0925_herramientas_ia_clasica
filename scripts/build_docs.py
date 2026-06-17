@@ -13,9 +13,8 @@ from reportlab.lib.units import inch
 from reportlab.lib import colors
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-    PageBreak, Image
+    PageBreak
 )
-from reportlab.lib.enums import TA_LEFT, TA_CENTER
 
 OUT_DIR = "/home/claude/funstay_webhook/docs"
 os.makedirs(OUT_DIR, exist_ok=True)

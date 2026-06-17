@@ -28,7 +28,6 @@ Env vars required:
 import os
 import sys
 import uuid
-import time
 import logging
 import tempfile
 import threading

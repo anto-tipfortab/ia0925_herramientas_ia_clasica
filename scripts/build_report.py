@@ -8,14 +8,13 @@ Covers the rubric's required sections:
 Usage:
   python -m scripts.build_report
 """
-import os
 from pathlib import Path
 
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_JUSTIFY
+from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Flowable,
 )
@@ -84,7 +83,6 @@ class ArchDiagram(Flowable):
 
     def draw(self):
         c = self.canv
-        W = self.width
         # --- Title band: RUNTIME (online) ---
         c.setFillColor(NAVY)
         c.setFont("Helvetica-Bold", 9)
@@ -140,11 +138,15 @@ class ArchDiagram(Flowable):
 def hr(color=LIGHT, h=2):
     class _HR(Flowable):
         def __init__(s):
-            super().__init__(); s.width = 0; s.height = h
+            super().__init__()
+            s.width = 0
+            s.height = h
         def wrap(s, aw, ah):
-            s.width = aw; return aw, h
+            s.width = aw
+            return aw, h
         def draw(s):
-            s.canv.setFillColor(color); s.canv.rect(0, 0, s.width, h, fill=1, stroke=0)
+            s.canv.setFillColor(color)
+            s.canv.rect(0, 0, s.width, h, fill=1, stroke=0)
     return _HR()
 
 
