@@ -7,6 +7,7 @@ Endpoints:
   GET  /health    → health check
 """
 import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI, Request, UploadFile, File, Form
 from fastapi.responses import JSONResponse, FileResponse
@@ -15,6 +16,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from . import config
 from .security import verify_request, AuthError
+from .startup_checks import validate_required_secrets
 from .handlers import (
     handle_validar_reserva,
     handle_codigo_puerta,
@@ -32,7 +34,15 @@ logging.basicConfig(
 )
 log = logging.getLogger("funstay")
 
-app = FastAPI(title="FunStay Concierge Webhook", version="1.0.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Fail fast on a misconfigured deploy: required secrets must be in the env.
+    validate_required_secrets()
+    yield
+
+
+app = FastAPI(title="FunStay Concierge Webhook", version="1.0.0", lifespan=lifespan)
 
 def _max_bytes_for_path(path: str) -> int:
     """Per-path request body ceiling (bytes). Read live from config so the
