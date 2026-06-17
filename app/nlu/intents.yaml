@@ -1,0 +1,81 @@
+# Reference phrases for the local-embedding NLU failover.
+#
+# These seed the nearest-centroid classifier that takes over when Dialogflow
+# (the PRIMARY NLU) is unavailable. In production this file is synced per tenant
+# from the Dialogflow training phrases via the Dialogflow API — the local copy
+# is the offline seed for the 6 webhook-fulfilled intents.
+#
+# Each intent lists example phrases in Spanish (es) and English (en); both are
+# embedded into a single per-intent centroid (the embedding model is multilingual).
+intents:
+  proporcionar_codigo_reserva:
+    es:
+      - "mi código de reserva es FS123456"
+      - "te doy mi reserva, es efe ese uno dos tres"
+      - "aquí tienes mi número de reserva"
+      - "quiero validar mi reserva"
+    en:
+      - "my booking code is FS123456"
+      - "here is my reservation number"
+      - "I want to validate my booking"
+      - "this is my confirmation code"
+
+  solicitar_codigo_puerta:
+    es:
+      - "¿cuál es el código de la puerta?"
+      - "necesito el código para entrar a la casa"
+      - "dame el código de acceso de la cerradura"
+      - "no puedo abrir la puerta, ¿qué código pongo?"
+    en:
+      - "what is the door code?"
+      - "I need the access code to get in"
+      - "give me the code for the lock"
+      - "how do I unlock the front door?"
+
+  pool_y_jacuzzi:
+    es:
+      - "¿cómo enciendo la calefacción de la piscina?"
+      - "¿el jacuzzi está caliente?"
+      - "horarios de la piscina y el spa"
+      - "¿cómo funciona el climatizador de la piscina?"
+    en:
+      - "how do I heat the pool?"
+      - "is the hot tub working?"
+      - "what are the pool hours?"
+      - "how do I turn on the jacuzzi?"
+
+  recomendaciones_disney_orlando:
+    es:
+      - "¿qué restaurantes me recomiendas cerca?"
+      - "recomiéndame sitios para visitar en Orlando"
+      - "¿dónde hay un supermercado cercano?"
+      - "qué hacer cerca de Disney"
+    en:
+      - "what restaurants do you recommend nearby?"
+      - "recommend places to visit in Orlando"
+      - "where is the nearest grocery store?"
+      - "things to do near Disney"
+
+  transporte_a_parques:
+    es:
+      - "¿cómo llego a los parques de Disney?"
+      - "¿hay transporte al aeropuerto?"
+      - "cuánto se tarda en llegar a Universal"
+      - "cómo voy desde la casa a Magic Kingdom"
+    en:
+      - "how do I get to the Disney parks?"
+      - "is there transport to the airport?"
+      - "how long does it take to reach Universal?"
+      - "how do I get from the house to Magic Kingdom"
+
+  reportar_incidencia:
+    es:
+      - "se ha roto el aire acondicionado"
+      - "quiero reportar un problema en la casa"
+      - "hay una fuga de agua en el baño"
+      - "el wifi no funciona, necesito ayuda"
+    en:
+      - "the air conditioning is broken"
+      - "I want to report a problem in the house"
+      - "there is a water leak in the bathroom"
+      - "something is not working, I need maintenance"

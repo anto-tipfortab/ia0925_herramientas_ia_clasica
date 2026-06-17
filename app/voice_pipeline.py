@@ -90,8 +90,20 @@ def normalize_booking_code(text: str) -> str:
     return re.sub(r"(?i)\b(f\s?s)[\s:.\-]*((?:\d[\s,]*){6})", repl, text)
 
 
-def detect_intent(text: str, language_code: str, session_id: str) -> tuple[str, str]:
-    """Dialogflow detect_intent (TEXT in/out). Returns (intent_name, reply_text)."""
+# Knowledge intents whose answer lives in the RAG/cache path — these can still be
+# answered when Dialogflow is down (the local classifier names the intent and the
+# cache-first RAG path produces the reply).
+KNOWLEDGE_TOPICS = {
+    "pool_y_jacuzzi": "pool",
+    "recomendaciones_disney_orlando": "orlando_guide",
+    "transporte_a_parques": "transport",
+}
+
+_router = None
+
+
+def _dialogflow_detect(text: str, language_code: str, session_id: str) -> tuple[str, str]:
+    """PRIMARY NLU: Dialogflow detect_intent (TEXT in/out). Returns (intent, reply)."""
     text = normalize_booking_code(text)
     client = _df_client()
     session_path = client.session_path(PROJECT, session_id)
@@ -103,6 +115,33 @@ def detect_intent(text: str, language_code: str, session_id: str) -> tuple[str, 
     )
     qr = resp.query_result
     return qr.intent.display_name or "", (qr.fulfillment_text or "")
+
+
+def _get_router():
+    global _router
+    if _router is None:
+        from .nlu import NLURouter
+        _router = NLURouter(_dialogflow_detect)
+    return _router
+
+
+def detect_intent(text: str, language_code: str, session_id: str) -> tuple[str, str]:
+    """Resolve intent via Dialogflow (primary) with local-classifier failover.
+
+    On the failover path Dialogflow's fulfillment is unavailable, so a knowledge
+    intent is answered from the cache-first RAG path; other intents return an
+    empty reply (the pipeline substitutes a generic message)."""
+    result = _get_router().detect(text, language_code, session_id)
+    reply = result.reply
+    if not reply and result.source == "local" and result.intent in KNOWLEDGE_TOPICS:
+        from .rag import answer_with_rag
+        try:
+            reply = answer_with_rag(text, language=language_code,
+                                    topic_filter=KNOWLEDGE_TOPICS[result.intent])
+        except Exception as e:  # outage during failover → generic reply downstream
+            log.warning("[web] RAG fallback during NLU failover failed: %s", e)
+            reply = ""
+    return result.intent, reply
 
 
 def synthesize(text: str, language_code: str) -> bytes:

@@ -111,6 +111,12 @@ PROMPT_VERSION: str = os.environ.get("PROMPT_VERSION", "1")
 CIRCUIT_FAILURE_THRESHOLD: int = _get_int("CIRCUIT_FAILURE_THRESHOLD", 3)
 CIRCUIT_COOLDOWN_SECONDS: float = _get_float("CIRCUIT_COOLDOWN_SECONDS", 30.0)
 
+# ---- Local NLU failover (Lane 4) ----
+# Top-K nearest intent centroids considered; top-1 within CONFIDENT_DISTANCE is
+# used directly, otherwise the LLM disambiguates among ONLY the top-K.
+NLU_TOP_K: int = _get_int("NLU_TOP_K", 3)
+NLU_CONFIDENT_DISTANCE: float = _get_float("NLU_CONFIDENT_DISTANCE", 0.35)
+
 
 def auth_is_configured() -> bool:
     """True if any endpoint-auth secret is present in the environment."""

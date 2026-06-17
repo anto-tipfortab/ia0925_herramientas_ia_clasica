@@ -18,6 +18,7 @@ from .base import (
 from .failover import AllProvidersFailed, FailoverEmbedding, FailoverLLM, FailoverTTS
 from .registry import (
     all_circuits,
+    get_circuit,
     get_embedding_failover,
     get_llm_failover,
     get_tts_failover,
@@ -37,6 +38,7 @@ __all__ = [
     "get_llm_failover",
     "get_embedding_failover",
     "get_tts_failover",
+    "get_circuit",
     "all_circuits",
     "reset",
 ]

@@ -36,6 +36,15 @@ def _circuit(name: str) -> CircuitBreaker:
     return _circuits[key]
 
 
+def get_circuit(name: str) -> CircuitBreaker:
+    """Get-or-create a named circuit breaker in the shared registry (tenant-scoped).
+
+    Public so non-provider subsystems (e.g. the NLU failover) register their
+    breaker in the same dict that :func:`all_circuits` reports to /ready.
+    """
+    return _circuit(name)
+
+
 def get_llm_failover() -> FailoverLLM:
     global _llm
     if _llm is None:
