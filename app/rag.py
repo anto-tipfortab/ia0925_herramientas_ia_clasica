@@ -18,6 +18,8 @@ from pathlib import Path
 import chromadb
 from openai import OpenAI
 
+from . import config
+
 log = logging.getLogger("funstay.rag")
 
 CHROMA_DIR = Path(__file__).resolve().parent.parent / "data" / "chroma"
@@ -43,7 +45,12 @@ def _get_openai():
         api_key = os.environ.get("OPENAI_API_KEY")
         if not api_key:
             raise RuntimeError("OPENAI_API_KEY not set")
-        _openai = OpenAI(api_key=api_key)
+        # SDK applies a per-request timeout and exponential backoff between retries.
+        _openai = OpenAI(
+            api_key=api_key,
+            timeout=config.OPENAI_TIMEOUT,
+            max_retries=config.OPENAI_MAX_RETRIES,
+        )
     return _openai
 
 

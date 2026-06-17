@@ -3,6 +3,7 @@ Per-intent handlers. Each receives (parameters, contexts, language, session)
 and returns a Dialogflow-ES-compatible response dict.
 """
 import logging
+
 from .data import lookup_reservation, generate_door_code, open_maintenance_ticket
 from .rag import answer_with_rag
 
