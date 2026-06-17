@@ -1,0 +1,39 @@
+# VCS / tooling
+.git/
+.github/
+.idea/
+.vscode/
+.DS_Store
+
+# Python caches / envs
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Secrets / local config (never bake into the image)
+.env
+credentials.json
+
+# Tests + dev-only files (not needed at runtime)
+tests/
+requirements-dev.txt
+
+# Knowledge base (mounted at runtime) + heavy demo artefacts
+data/chroma/
+*.zip
+*.mov
+*.pdf
+docs/
+funstay_agent/
+LLMContextProvider/
+FunStay_Concierge_Entrega_Antonio_Rodriguez/
+
+# Project meta
+README.md
+current_state.md
+*.txt
+!requirements.txt
