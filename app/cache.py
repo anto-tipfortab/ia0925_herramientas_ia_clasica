@@ -321,14 +321,14 @@ class AudioCache:
 
 
 def pre_rendered_decline(language: str) -> str:
-    """Step-4 graceful decline when live lookups are unavailable."""
+    """Graceful decline when live lookups are unavailable (degraded mode / step 4)."""
     if language.startswith("es"):
         return (
-            "Ahora mismo solo puedo responder preguntas frecuentes; las consultas en vivo "
-            "no están disponibles un momento. Inténtalo de nuevo en unos minutos."
+            "Puedo responder preguntas frecuentes; las consultas en vivo no están "
+            "disponibles en este momento. Inténtalo de nuevo en unos minutos."
         )
     return (
-        "Right now I can only answer common questions; live lookups are briefly unavailable. "
+        "I can answer common questions; live lookups are briefly unavailable. "
         "Please try again in a few minutes."
     )
 

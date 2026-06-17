@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Dict, Optional
 
 from .. import config
-from ..circuit import CircuitBreaker
+from ..circuit import CircuitBreaker, CircuitState
 from .embeddings import OpenAIEmbeddingProvider
 from .failover import FailoverEmbedding, FailoverLLM, FailoverTTS
 from .llm import AnthropicLLMProvider, OpenAILLMProvider
@@ -82,6 +82,15 @@ def all_circuits() -> Dict[str, CircuitBreaker]:
     get_embedding_failover()
     get_tts_failover()
     return dict(_circuits)
+
+
+def any_circuit_open() -> bool:
+    """True if any registered breaker is currently OPEN — the degraded-mode signal.
+
+    Only considers breakers that already exist (does not force-build chains), so a
+    caller decides degraded-ness from whatever subsystems are actually wired up.
+    """
+    return any(cb.state is CircuitState.OPEN for cb in _circuits.values())
 
 
 def reset() -> None:

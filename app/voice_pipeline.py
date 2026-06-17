@@ -191,8 +191,16 @@ def handle_turn(audio_bytes: bytes, suffix: str, session_id: str) -> dict:
         }
     intent, reply = detect_intent(text, lang, session_id)
     if not reply:
-        reply = "Lo siento, no he podido procesar eso." if lang.startswith("es") \
-            else "Sorry, I couldn't process that."
+        # In degraded mode (a circuit is open) prefer the "common questions only"
+        # decline over the generic message, so the guest understands live lookups
+        # are briefly unavailable.
+        from .providers import any_circuit_open
+        if any_circuit_open():
+            from .cache import pre_rendered_decline
+            reply = pre_rendered_decline(lang)
+        else:
+            reply = "Lo siento, no he podido procesar eso." if lang.startswith("es") \
+                else "Sorry, I couldn't process that."
     audio = synthesize(reply, lang)
     return {
         "user_text": text,

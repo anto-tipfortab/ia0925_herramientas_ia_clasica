@@ -15,6 +15,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from . import config
+from .cache import pre_rendered_decline
+from .health import readiness
+from .providers import any_circuit_open
 from .security import verify_request, AuthError
 from .startup_checks import validate_required_secrets
 from .handlers import (
@@ -96,7 +99,17 @@ INTENT_HANDLERS = {
 
 @app.get("/health")
 async def health():
+    """Liveness: the process is up and serving (does not probe dependencies)."""
     return {"status": "ok", "service": "FunStay Concierge Webhook"}
+
+
+@app.get("/ready")
+async def ready():
+    """Readiness: probe Chroma + every provider/NLU circuit. 200 ready / 503 degraded."""
+    from fastapi.concurrency import run_in_threadpool
+
+    ok, body = await run_in_threadpool(readiness)
+    return JSONResponse(body, status_code=200 if ok else 503)
 
 
 @app.get("/demo")
@@ -175,12 +188,17 @@ async def webhook(request: Request):
 
     handler = INTENT_HANDLERS.get(intent_name)
     if not handler:
-        # Unknown intent: return a graceful fallback
-        msg = (
-            "Lo siento, no puedo procesar esa petición ahora mismo."
-            if language.startswith("es")
-            else "Sorry, I can't process that request right now."
-        )
+        # Unknown intent. In degraded mode (a circuit is open) return the
+        # pre-rendered "common questions only" decline; otherwise the normal
+        # graceful fallback.
+        if any_circuit_open():
+            msg = pre_rendered_decline(language)
+        else:
+            msg = (
+                "Lo siento, no puedo procesar esa petición ahora mismo."
+                if language.startswith("es")
+                else "Sorry, I can't process that request right now."
+            )
         return JSONResponse(_text_response(msg))
 
     try:
