@@ -64,7 +64,7 @@ def embed_text(text: str) -> List[float]:
     return response.data[0].embedding
 
 
-def retrieve(query: str, topic_filter: str = None, k: int = TOP_K):
+def retrieve(query: str, topic_filter: str | None = None, k: int = TOP_K):
     """Retrieve top-k chunks for a query. Optionally filter by topic metadata."""
     collection = _get_collection()
     query_embedding = embed_text(query)
@@ -88,7 +88,7 @@ def retrieve(query: str, topic_filter: str = None, k: int = TOP_K):
     return docs, distances, metadatas
 
 
-def answer_with_rag(query: str, language: str = "es", topic_filter: str = None) -> str:
+def answer_with_rag(query: str, language: str = "es", topic_filter: str | None = None) -> str:
     """
     Full RAG pipeline:
     1. Retrieve top-k relevant chunks
