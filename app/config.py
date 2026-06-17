@@ -68,6 +68,39 @@ POLLY_READ_TIMEOUT: float = _get_float("POLLY_READ_TIMEOUT", 15.0)
 POLLY_MAX_ATTEMPTS: int = _get_int("POLLY_MAX_ATTEMPTS", 3)
 
 
+# ---- Tenant namespace (single-tenant in code, tenant-scoped in design) ----
+# A constant today; every cache key, vector namespace and circuit name is keyed
+# by it so multi-tenant becomes config (a per-request tenant) not a migration.
+TENANT_ID: str = os.environ.get("TENANT_ID", "funstay")
+
+# ---- Model selection (primary providers) ----
+OPENAI_LLM_MODEL: str = os.environ.get("OPENAI_LLM_MODEL", "gpt-4o-mini")
+OPENAI_EMBED_MODEL: str = os.environ.get("OPENAI_EMBED_MODEL", "text-embedding-3-small")
+
+# ---- LLM standby (Anthropic Claude) ----
+# Unset key => standby simply unavailable; the service must not crash for it.
+ANTHROPIC_API_KEY: Optional[str] = os.environ.get("ANTHROPIC_API_KEY") or None
+# Haiku is the cheap/fast tier matching the gpt-4o-mini primary.
+ANTHROPIC_MODEL: str = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5")
+ANTHROPIC_TIMEOUT: float = _get_float("ANTHROPIC_TIMEOUT", 30.0)
+ANTHROPIC_MAX_RETRIES: int = _get_int("ANTHROPIC_MAX_RETRIES", 3)
+
+# ---- TTS standby (OpenAI TTS or ElevenLabs) ----
+TTS_STANDBY: str = os.environ.get("TTS_STANDBY", "openai").strip().lower()
+OPENAI_TTS_MODEL: str = os.environ.get("OPENAI_TTS_MODEL", "tts-1")
+OPENAI_TTS_VOICE: str = os.environ.get("OPENAI_TTS_VOICE", "alloy")
+ELEVENLABS_API_KEY: Optional[str] = os.environ.get("ELEVENLABS_API_KEY") or None
+ELEVENLABS_VOICE_ID: str = os.environ.get("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
+ELEVENLABS_MODEL: str = os.environ.get("ELEVENLABS_MODEL", "eleven_multilingual_v2")
+ELEVENLABS_TIMEOUT: float = _get_float("ELEVENLABS_TIMEOUT", 30.0)
+
+# ---- Circuit breaker (per provider) ----
+# N consecutive failures opens the circuit; after COOLDOWN seconds a single
+# half-open trial decides whether to close again or re-open.
+CIRCUIT_FAILURE_THRESHOLD: int = _get_int("CIRCUIT_FAILURE_THRESHOLD", 3)
+CIRCUIT_COOLDOWN_SECONDS: float = _get_float("CIRCUIT_COOLDOWN_SECONDS", 30.0)
+
+
 def auth_is_configured() -> bool:
     """True if any endpoint-auth secret is present in the environment."""
     return bool(WEBHOOK_HMAC_SECRET or WEBHOOK_SHARED_SECRET)

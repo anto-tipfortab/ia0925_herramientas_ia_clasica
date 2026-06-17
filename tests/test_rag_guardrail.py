@@ -2,31 +2,23 @@
 
 The guardrail declines (no LLM call) when retrieval is empty or all distances
 exceed MIN_CONFIDENCE_DISTANCE; otherwise it calls the LLM with the retrieved
-context. Both retrieval and the OpenAI client are mocked — no network.
+context. Retrieval and the LLM-provider seam (rag._complete) are mocked — no
+network.
 """
 from unittest.mock import MagicMock
 
 import app.rag as rag
 
 
-def _fake_openai_returning(text):
-    """Build a MagicMock OpenAI client whose chat completion yields `text`."""
-    client = MagicMock()
-    client.chat.completions.create.return_value.choices = [
-        MagicMock(message=MagicMock(content=text))
-    ]
-    return client
-
-
 def test_declines_when_no_documents(monkeypatch):
     monkeypatch.setattr(rag, "retrieve", lambda *a, **k: ([], [], []))
-    spy = _fake_openai_returning("SHOULD NOT BE CALLED")
-    monkeypatch.setattr(rag, "_get_openai", lambda: spy)
+    spy = MagicMock(return_value="SHOULD NOT BE CALLED")
+    monkeypatch.setattr(rag, "_complete", spy)
 
     out = rag.answer_with_rag("¿hay piscina climatizada?", language="es")
 
     assert "No tengo esa información" in out
-    spy.chat.completions.create.assert_not_called()  # guardrail blocked the LLM
+    spy.assert_not_called()  # guardrail blocked the LLM
 
 
 def test_declines_when_all_distances_too_weak(monkeypatch):
@@ -35,13 +27,13 @@ def test_declines_when_all_distances_too_weak(monkeypatch):
         rag, "retrieve",
         lambda *a, **k: (["irrelevant"], [rag.MIN_CONFIDENCE_DISTANCE + 0.5], [{"source": "x"}]),
     )
-    spy = _fake_openai_returning("SHOULD NOT BE CALLED")
-    monkeypatch.setattr(rag, "_get_openai", lambda: spy)
+    spy = MagicMock(return_value="SHOULD NOT BE CALLED")
+    monkeypatch.setattr(rag, "_complete", spy)
 
     out = rag.answer_with_rag("question", language="en")
 
     assert "I don't have that information" in out
-    spy.chat.completions.create.assert_not_called()
+    spy.assert_not_called()
 
 
 def test_answers_when_context_is_strong(monkeypatch):
@@ -49,13 +41,13 @@ def test_answers_when_context_is_strong(monkeypatch):
         rag, "retrieve",
         lambda *a, **k: (["The pool heater is on panel B."], [0.21], [{"source": "manual.pdf"}]),
     )
-    spy = _fake_openai_returning("  Heat the pool from panel B.  ")
-    monkeypatch.setattr(rag, "_get_openai", lambda: spy)
+    spy = MagicMock(return_value="Heat the pool from panel B.")
+    monkeypatch.setattr(rag, "_complete", spy)
 
     out = rag.answer_with_rag("how do I heat the pool?", language="en")
 
-    assert out == "Heat the pool from panel B."         # stripped LLM answer
-    spy.chat.completions.create.assert_called_once()    # guardrail allowed the LLM
+    assert out == "Heat the pool from panel B."
+    spy.assert_called_once()    # guardrail allowed the LLM
 
 
 def test_threshold_boundary_is_inclusive_of_answering(monkeypatch):
@@ -64,10 +56,23 @@ def test_threshold_boundary_is_inclusive_of_answering(monkeypatch):
         rag, "retrieve",
         lambda *a, **k: (["doc"], [rag.MIN_CONFIDENCE_DISTANCE], [{"source": "x"}]),
     )
-    spy = _fake_openai_returning("Answer at boundary.")
-    monkeypatch.setattr(rag, "_get_openai", lambda: spy)
+    spy = MagicMock(return_value="Answer at boundary.")
+    monkeypatch.setattr(rag, "_complete", spy)
 
     out = rag.answer_with_rag("q", language="en")
 
     assert out == "Answer at boundary."
-    spy.chat.completions.create.assert_called_once()
+    spy.assert_called_once()
+
+
+def test_complete_routes_through_llm_failover(monkeypatch):
+    """rag._complete delegates to the LLM-provider failover."""
+    fake = MagicMock()
+    fake.complete.return_value = "  routed answer  "
+    monkeypatch.setattr(rag, "get_llm_failover", lambda: fake)
+
+    out = rag._complete("sys", "user")
+
+    assert out == "  routed answer  "
+    _, kwargs = fake.complete.call_args
+    assert kwargs["system"] == "sys" and kwargs["user"] == "user"

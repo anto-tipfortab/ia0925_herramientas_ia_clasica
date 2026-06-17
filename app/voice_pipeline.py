@@ -20,25 +20,18 @@ import base64
 import tempfile
 import logging
 
-import boto3
-from botocore.config import Config as BotoConfig
-from openai import OpenAI
 from google.cloud import dialogflow_v2 as dialogflow
 from google.api_core.client_options import ClientOptions
 
-from . import config
+from .providers import get_tts_failover
+from .providers.openai_client import get_openai_client
 
 log = logging.getLogger("funstay.voice")
 
 PROJECT = os.environ.get("GOOGLE_PROJECT_ID")
-AWS_REGION = os.environ.get("AWS_DEFAULT_REGION", "eu-west-1")
 
 WHISPER_MODEL = "whisper-1"
-VOICE_ES = "Lucia"   # es-ES neural
-VOICE_EN = "Joanna"  # en-US neural
 
-_openai = None
-_polly = None
 _df = None
 
 # Per-session last detected language. Whisper mis-detects very short clips
@@ -48,29 +41,10 @@ _SHORT_CONFIRM = {"si", "sí", "no", "yes", "sì", "vale", "ok", "okay", "claro"
 
 
 def _oa():
-    global _openai
-    if _openai is None:
-        _openai = OpenAI(
-            timeout=config.OPENAI_TIMEOUT,
-            max_retries=config.OPENAI_MAX_RETRIES,
-        )
-    return _openai
-
-
-def _polly_client():
-    global _polly
-    if _polly is None:
-        # Bounded connect/read timeouts + botocore's standard retry mode (backoff).
-        _polly = boto3.client(
-            "polly",
-            region_name=AWS_REGION,
-            config=BotoConfig(
-                connect_timeout=config.POLLY_CONNECT_TIMEOUT,
-                read_timeout=config.POLLY_READ_TIMEOUT,
-                retries={"max_attempts": config.POLLY_MAX_ATTEMPTS, "mode": "standard"},
-            ),
-        )
-    return _polly
+    # Whisper STT reuses the shared OpenAI client: key-gated (raises
+    # ProviderUnavailable when OPENAI_API_KEY is unset) and on the same
+    # timeout/retry policy as the LLM/embedding providers.
+    return get_openai_client()
 
 
 def _df_client():
@@ -130,20 +104,13 @@ def detect_intent(text: str, language_code: str, session_id: str) -> tuple[str, 
 
 
 def synthesize(text: str, language_code: str) -> bytes:
-    """AWS Polly TTS -> mp3 bytes (neural, with standard fallback)."""
-    voice = VOICE_ES if language_code.startswith("es") else VOICE_EN
-    lang = "es-ES" if language_code.startswith("es") else "en-US"
-    polly = _polly_client()
-    try:
-        r = polly.synthesize_speech(
-            Text=text, OutputFormat="mp3", VoiceId=voice, Engine="neural", LanguageCode=lang
-        )
-    except Exception as e:
-        log.warning(f"[web] Polly neural failed ({e}); falling back to standard.")
-        r = polly.synthesize_speech(
-            Text=text, OutputFormat="mp3", VoiceId=voice, Engine="standard"
-        )
-    return r["AudioStream"].read()
+    """TTS -> mp3 bytes via the provider failover (Polly primary → standby).
+
+    The provider layer owns the neural→standard in-engine fallback, the
+    timeout+retry policy, the circuit breaker and the primary→standby
+    failover, so this is now a thin pass-through.
+    """
+    return get_tts_failover().synthesize(text=text, language_code=language_code)
 
 
 def handle_turn(audio_bytes: bytes, suffix: str, session_id: str) -> dict:

@@ -10,48 +10,29 @@ RAG pipeline for FunStay Concierge.
 The vector store is built offline by scripts/ingest.py. At runtime we just
 load the persistent client and query.
 """
-import os
 import logging
 from typing import List
 from pathlib import Path
 
 import chromadb
-from openai import OpenAI
 
-from . import config
+from .providers import get_embedding_failover, get_llm_failover
 
 log = logging.getLogger("funstay.rag")
 
 CHROMA_DIR = Path(__file__).resolve().parent.parent / "data" / "chroma"
 COLLECTION_NAME = "funstay_knowledge"
 
-# Embedding + LLM models
-EMBED_MODEL = "text-embedding-3-small"
-LLM_MODEL = "gpt-4o-mini"
+# Embedding + LLM model selection now lives in app.config (OPENAI_EMBED_MODEL /
+# OPENAI_LLM_MODEL) and is read by the providers — not duplicated here.
 
 # Retrieval config
 TOP_K = 4
 MIN_CONFIDENCE_DISTANCE = 1.2  # cosine distance threshold; > means context too weak
 
 # Lazy clients
-_openai = None
 _chroma = None
 _collection = None
-
-
-def _get_openai():
-    global _openai
-    if _openai is None:
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if not api_key:
-            raise RuntimeError("OPENAI_API_KEY not set")
-        # SDK applies a per-request timeout and exponential backoff between retries.
-        _openai = OpenAI(
-            api_key=api_key,
-            timeout=config.OPENAI_TIMEOUT,
-            max_retries=config.OPENAI_MAX_RETRIES,
-        )
-    return _openai
 
 
 def _get_collection():
@@ -65,10 +46,20 @@ def _get_collection():
 
 
 def embed_text(text: str) -> List[float]:
-    """Generate an embedding vector for a single piece of text."""
-    client = _get_openai()
-    response = client.embeddings.create(model=EMBED_MODEL, input=text)
-    return response.data[0].embedding
+    """Generate an embedding vector for a single piece of text.
+
+    Routed through the embedding-provider failover (timeout+retry → circuit
+    breaker → standby) so a backend outage degrades gracefully instead of
+    raising raw SDK errors.
+    """
+    return get_embedding_failover().embed(text)
+
+
+def _complete(system: str, user: str) -> str:
+    """Grounded answer generation via the LLM-provider failover (OpenAI → Claude)."""
+    return get_llm_failover().complete(
+        system=system, user=user, temperature=0.3, max_tokens=250
+    )
 
 
 def retrieve(query: str, topic_filter: str | None = None, k: int = TOP_K):
@@ -142,17 +133,6 @@ def answer_with_rag(query: str, language: str = "es", topic_filter: str | None =
 
     user = f"Contexto:\n{context_block}\n\nPregunta del huésped: {query}"
 
-    client = _get_openai()
-    completion = client.chat.completions.create(
-        model=LLM_MODEL,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-        temperature=0.3,
-        max_tokens=250,
-    )
-
-    answer = completion.choices[0].message.content.strip()
+    answer = _complete(system, user)
     log.info(f"RAG answer: {answer[:100]}...")
     return answer

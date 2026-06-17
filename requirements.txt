@@ -6,6 +6,9 @@ pydantic==2.9.2
 # RAG
 chromadb==0.5.15
 openai==1.54.0
+# LLM standby (provider failover). Optional at runtime: if ANTHROPIC_API_KEY is
+# unset the standby is simply skipped, but the package is needed to use it.
+anthropic==0.40.0
 # openai 1.54 passes the `proxies` kwarg that httpx>=0.28 removed — pin httpx.
 httpx==0.27.2
 
