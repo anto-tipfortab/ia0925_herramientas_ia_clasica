@@ -11,12 +11,14 @@ The vector store is built offline by scripts/ingest.py. At runtime we just
 load the persistent client and query.
 """
 import logging
-from typing import List
+from typing import List, Optional, Tuple
 from pathlib import Path
 
 import chromadb
 
-from .providers import get_embedding_failover, get_llm_failover
+from . import config
+from .cache import answer_column, get_answer_cache, pre_rendered_decline
+from .providers import ProviderError, get_embedding_failover, get_llm_failover
 
 log = logging.getLogger("funstay.rag")
 
@@ -62,10 +64,16 @@ def _complete(system: str, user: str) -> str:
     )
 
 
-def retrieve(query: str, topic_filter: str | None = None, k: int = TOP_K):
-    """Retrieve top-k chunks for a query. Optionally filter by topic metadata."""
+def retrieve(query: str, topic_filter: str | None = None, k: int = TOP_K,
+             query_embedding: Optional[List[float]] = None):
+    """Retrieve top-k chunks for a query. Optionally filter by topic metadata.
+
+    Accepts a precomputed ``query_embedding`` so the 4-step cache ladder can
+    embed the query exactly once.
+    """
     collection = _get_collection()
-    query_embedding = embed_text(query)
+    if query_embedding is None:
+        query_embedding = embed_text(query)
 
     where = {"topic": topic_filter} if topic_filter else None
 
@@ -86,31 +94,46 @@ def retrieve(query: str, topic_filter: str | None = None, k: int = TOP_K):
     return docs, distances, metadatas
 
 
-def answer_with_rag(query: str, language: str = "es", topic_filter: str | None = None) -> str:
-    """
-    Full RAG pipeline:
-    1. Retrieve top-k relevant chunks
-    2. If retrieval is too weak → return "I don't have that info" (no hallucination)
-    3. Else call LLM with retrieved context + strict instructions
-    """
-    docs, distances, metadatas = retrieve(query, topic_filter=topic_filter)
+def _guardrail_decline(language: str) -> str:
+    """Anti-hallucination decline: context too weak to answer (a grounded negative)."""
+    if language.startswith("es"):
+        return (
+            "No tengo esa información en el manual de tu propiedad. "
+            "Si quieres, abro un ticket para que Mike te contacte directamente."
+        )
+    return (
+        "I don't have that information in your property manual. "
+        "If you'd like, I can open a ticket so Mike can contact you directly."
+    )
 
-    # Anti-hallucination guardrail: if all results are weak, decline
+
+def _live_rag(
+    query: str,
+    language: str,
+    topic_filter: str | None,
+    query_embedding: Optional[List[float]] = None,
+) -> Tuple[str, bool, List[str]]:
+    """Live retrieval + grounded generation.
+
+    Returns ``(answer, grounded, source_refs)``. ``grounded`` is False when the
+    anti-hallucination guardrail declined (too-weak context) — that answer is
+    legitimate but must NOT be cached as a FAQ. Raises ProviderError if the
+    embedding/LLM providers are all unavailable (the caller maps that to the
+    step-4 decline).
+    """
+    docs, distances, metadatas = retrieve(
+        query, topic_filter=topic_filter, query_embedding=query_embedding
+    )
+
     if not docs or (distances and min(distances) > MIN_CONFIDENCE_DISTANCE):
         log.info("RAG: insufficient context, declining to answer.")
-        if language.startswith("es"):
-            return (
-                "No tengo esa información en el manual de tu propiedad. "
-                "Si quieres, abro un ticket para que Mike te contacte directamente."
-            )
-        return (
-            "I don't have that information in your property manual. "
-            "If you'd like, I can open a ticket so Mike can contact you directly."
-        )
+        return _guardrail_decline(language), False, []
 
-    # Build context block with source attribution
+    # Chroma can return None metadata for a chunk ingested without it — guard so
+    # a missing source never raises (which would bypass the decline path).
+    source_refs = sorted({(meta or {}).get("source", "unknown") for meta in metadatas})
     context_block = "\n\n".join(
-        f"[Fuente: {meta.get('source', 'unknown')}]\n{doc}"
+        f"[Fuente: {(meta or {}).get('source', 'unknown')}]\n{doc}"
         for doc, meta in zip(docs, metadatas)
     )
 
@@ -130,9 +153,73 @@ def answer_with_rag(query: str, language: str = "es", topic_filter: str | None =
     )
 
     system = system_prompt_es if language.startswith("es") else system_prompt_en
-
     user = f"Contexto:\n{context_block}\n\nPregunta del huésped: {query}"
 
     answer = _complete(system, user)
     log.info(f"RAG answer: {answer[:100]}...")
+    return answer, True, source_refs
+
+
+def answer_with_rag(query: str, language: str = "es", topic_filter: str | None = None) -> str:
+    """4-step answer ladder (cache-first, fail-soft):
+
+    1. Curated exact match by topic — no embedding, so it survives an embedding outage.
+    2. Semantic match against stored FAQ question embeddings (distance threshold).
+    3. Miss → live RAG via the Lane-1 LLM provider, written through as status='auto'.
+    4. Live RAG unavailable (providers down) → pre-rendered graceful decline.
+    """
+    cache = get_answer_cache()
+    tenant = config.TENANT_ID
+
+    # Step 1 — curated exact match by intent/topic (no embedding needed).
+    if topic_filter:
+        row = cache.get_curated(tenant, topic_filter)
+        if row is not None:
+            cached = row[answer_column(language)]
+            if cached:
+                log.info("cache: curated hit (topic=%s)", topic_filter)
+                return cached
+
+    # Steps 2–4 need the embedding/LLM providers; degrade to a decline if they are down.
+    try:
+        q_emb = embed_text(query)
+    except ProviderError as e:
+        log.warning("cache: embeddings unavailable (%s); serving decline", e)
+        return pre_rendered_decline(language)
+
+    # Step 2 — semantic match against stored FAQ questions. On a match that is
+    # missing the requested language, reuse that row's key so step 3 fills the
+    # other language onto the SAME row instead of creating a duplicate.
+    write_topic, write_q = topic_filter, query
+    match = cache.semantic_match(tenant, q_emb, topic_filter, config.CACHE_SEMANTIC_DISTANCE)
+    if match is not None:
+        row, dist = match
+        cached = row[answer_column(language)]
+        if cached:
+            log.info("cache: semantic hit (topic=%s, distance=%.3f)", topic_filter, dist)
+            return cached
+        write_topic, write_q = row["topic"], row["canonical_q"]
+
+    # Step 3 — live RAG, write-through on a grounded answer.
+    try:
+        answer, grounded, source_refs = _live_rag(query, language, topic_filter, query_embedding=q_emb)
+    except ProviderError as e:
+        log.warning("cache: live RAG unavailable (%s); serving decline", e)
+        return pre_rendered_decline(language)
+
+    if grounded:
+        try:
+            cache.write_through(
+                tenant_id=tenant,
+                topic=write_topic,
+                canonical_q=write_q,
+                query_embedding=q_emb,
+                language=language,
+                answer=answer,
+                source_refs=source_refs,
+                status="auto",
+            )
+        except Exception as e:  # a cache write must never break the live answer
+            log.warning("cache: write-through failed (%s)", e)
+
     return answer

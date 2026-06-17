@@ -23,8 +23,10 @@ import logging
 from google.cloud import dialogflow_v2 as dialogflow
 from google.api_core.client_options import ClientOptions
 
+from .cache import get_audio_cache
 from .providers import get_tts_failover
 from .providers.openai_client import get_openai_client
+from .providers.tts import VOICE_EN, VOICE_ES
 
 log = logging.getLogger("funstay.voice")
 
@@ -104,13 +106,33 @@ def detect_intent(text: str, language_code: str, session_id: str) -> tuple[str, 
 
 
 def synthesize(text: str, language_code: str) -> bytes:
-    """TTS -> mp3 bytes via the provider failover (Polly primary → standby).
+    """TTS -> mp3 bytes, audio-cache first then the provider failover.
 
-    The provider layer owns the neural→standard in-engine fallback, the
-    timeout+retry policy, the circuit breaker and the primary→standby
-    failover, so this is now a thin pass-through.
+    Read-through the audio cache (sha256(text|voice|lang)); on a miss, synthesize
+    via the provider failover (Polly primary → standby, with its own breaker and
+    neural→standard fallback) and write the result back so identical utterances —
+    the common FAQ answers — are rendered once.
+
+    Known limitation: the key uses the canonical primary voice, so audio produced
+    by a standby/standard engine during an outage is cached under that key. The
+    cached clip stays intelligible; voice consistency is best-effort across an
+    outage window. (Lane 3 pre-synthesizes approved answers on the healthy path.)
     """
-    return get_tts_failover().synthesize(text=text, language_code=language_code)
+    es = language_code.startswith("es")
+    voice = VOICE_ES if es else VOICE_EN
+    lang = "es" if es else "en"
+
+    cache = get_audio_cache()
+    cached = cache.get(text, voice, lang)
+    if cached is not None:
+        return cached
+
+    audio = get_tts_failover().synthesize(text=text, language_code=language_code)
+    try:
+        cache.put(text, voice, lang, audio)
+    except OSError as e:  # a cache write must never break the live turn
+        log.warning("[web] audio cache write failed: %s", e)
+    return audio
 
 
 def handle_turn(audio_bytes: bytes, suffix: str, session_id: str) -> dict:

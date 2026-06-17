@@ -1,9 +1,9 @@
-"""Tests for the RAG anti-hallucination guardrail (app.rag.answer_with_rag).
+"""Tests for the RAG anti-hallucination guardrail (app.rag._live_rag).
 
 The guardrail declines (no LLM call) when retrieval is empty or all distances
-exceed MIN_CONFIDENCE_DISTANCE; otherwise it calls the LLM with the retrieved
-context. Retrieval and the LLM-provider seam (rag._complete) are mocked — no
-network.
+exceed MIN_CONFIDENCE_DISTANCE, returning grounded=False; otherwise it calls
+the LLM with the retrieved context and returns grounded=True. Retrieval and the
+LLM-provider seam (rag._complete) are mocked — no network.
 """
 from unittest.mock import MagicMock
 
@@ -15,14 +15,14 @@ def test_declines_when_no_documents(monkeypatch):
     spy = MagicMock(return_value="SHOULD NOT BE CALLED")
     monkeypatch.setattr(rag, "_complete", spy)
 
-    out = rag.answer_with_rag("¿hay piscina climatizada?", language="es")
+    answer, grounded, refs = rag._live_rag("¿hay piscina climatizada?", "es", None)
 
-    assert "No tengo esa información" in out
+    assert "No tengo esa información" in answer
+    assert grounded is False and refs == []
     spy.assert_not_called()  # guardrail blocked the LLM
 
 
 def test_declines_when_all_distances_too_weak(monkeypatch):
-    # docs exist but every distance is beyond the confidence threshold.
     monkeypatch.setattr(
         rag, "retrieve",
         lambda *a, **k: (["irrelevant"], [rag.MIN_CONFIDENCE_DISTANCE + 0.5], [{"source": "x"}]),
@@ -30,9 +30,10 @@ def test_declines_when_all_distances_too_weak(monkeypatch):
     spy = MagicMock(return_value="SHOULD NOT BE CALLED")
     monkeypatch.setattr(rag, "_complete", spy)
 
-    out = rag.answer_with_rag("question", language="en")
+    answer, grounded, _ = rag._live_rag("question", "en", None)
 
-    assert "I don't have that information" in out
+    assert "I don't have that information" in answer
+    assert grounded is False
     spy.assert_not_called()
 
 
@@ -44,10 +45,11 @@ def test_answers_when_context_is_strong(monkeypatch):
     spy = MagicMock(return_value="Heat the pool from panel B.")
     monkeypatch.setattr(rag, "_complete", spy)
 
-    out = rag.answer_with_rag("how do I heat the pool?", language="en")
+    answer, grounded, refs = rag._live_rag("how do I heat the pool?", "en", "pool")
 
-    assert out == "Heat the pool from panel B."
-    spy.assert_called_once()    # guardrail allowed the LLM
+    assert answer == "Heat the pool from panel B."
+    assert grounded is True and refs == ["manual.pdf"]
+    spy.assert_called_once()
 
 
 def test_threshold_boundary_is_inclusive_of_answering(monkeypatch):
@@ -56,13 +58,11 @@ def test_threshold_boundary_is_inclusive_of_answering(monkeypatch):
         rag, "retrieve",
         lambda *a, **k: (["doc"], [rag.MIN_CONFIDENCE_DISTANCE], [{"source": "x"}]),
     )
-    spy = MagicMock(return_value="Answer at boundary.")
-    monkeypatch.setattr(rag, "_complete", spy)
+    monkeypatch.setattr(rag, "_complete", MagicMock(return_value="Answer at boundary."))
 
-    out = rag.answer_with_rag("q", language="en")
+    answer, grounded, _ = rag._live_rag("q", "en", None)
 
-    assert out == "Answer at boundary."
-    spy.assert_called_once()
+    assert answer == "Answer at boundary." and grounded is True
 
 
 def test_complete_routes_through_llm_failover(monkeypatch):

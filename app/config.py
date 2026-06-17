@@ -94,6 +94,17 @@ ELEVENLABS_VOICE_ID: str = os.environ.get("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq
 ELEVENLABS_MODEL: str = os.environ.get("ELEVENLABS_MODEL", "eleven_multilingual_v2")
 ELEVENLABS_TIMEOUT: float = _get_float("ELEVENLABS_TIMEOUT", 30.0)
 
+# ---- Answer + audio cache (Lane 2) ----
+_DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
+CACHE_DB_PATH: str = os.environ.get("CACHE_DB_PATH", os.path.join(_DATA_DIR, "cache", "answers.sqlite3"))
+AUDIO_CACHE_DIR: str = os.environ.get("AUDIO_CACHE_DIR", os.path.join(_DATA_DIR, "audio_cache"))
+# Max cosine distance for a stored FAQ question to count as a semantic match.
+CACHE_SEMANTIC_DISTANCE: float = _get_float("CACHE_SEMANTIC_DISTANCE", 0.25)
+# Versions stamped onto cached answers; bumping the corpus invalidates entries
+# (Lane 3 owns the bump + regeneration logic).
+CORPUS_VERSION: str = os.environ.get("CORPUS_VERSION", "1")
+PROMPT_VERSION: str = os.environ.get("PROMPT_VERSION", "1")
+
 # ---- Circuit breaker (per provider) ----
 # N consecutive failures opens the circuit; after COOLDOWN seconds a single
 # half-open trial decides whether to close again or re-open.
